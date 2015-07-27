@@ -13,6 +13,7 @@
 # -----------------------------------------------------------------------------
 import numpy as np
 from model import *
+from display import *
 import matplotlib.pyplot as plt
 # --- Parameter
 ms         = 0.001
@@ -21,10 +22,12 @@ trial      = 2500*ms
 dt         = 1*ms
 
 #debug      = True
+testing    = True
+#testing    = False
 debug      = False
 mot_learning = False
 #mot_learning = True
-threshold  = 40
+threshold  = 40 
 alpha_c    = 0.025
 alpha_m    = alpha_c            #change_motor_learning
 alpha_LTP  = 0.004
@@ -50,8 +53,10 @@ def set_session():
     global cues_mot, cues_cog, cues_value, cues_reward 
     global mot_value
     global P, R, MP
+    global DT_COG, DT_MOT
     global W_arr, WM_arr
     P, R, MP = [], [], []
+    DT_COG, DT_MOT = [], []
     W_arr, WM_arr = [], [] 
     # These weights will change (learning)
     W = weights(4)
@@ -205,7 +210,11 @@ def learn(time, debug=True):
 
 
 # 120 trials
-num_trials = 120 
+if testing:
+    num_trials = 40
+else:
+    num_trials = 120
+     
 ### begin of run_session
 def run_session():
     set_session()
@@ -223,19 +232,34 @@ def run_session():
         # Trial setup
         set_trial()
 
-        decision = False
         # Learning phase (2500ms)
         i0 = int(settling/dt)
         i1 = i0+int(trial/dt)
+        cog_not_made = True
+        mot_not_made = True
         for i in xrange(i0,i1):
             iterate(dt)
+            if cog_not_made and CTX.cog.delta > threshold :
+                cog_not_made = False
+                cog_time = i - 500 
             # Test if a decision has been made
-            if CTX.mot.delta > threshold:
+            if mot_not_made and CTX.mot.delta > threshold:
                 learn(time=i-500, debug=debug)
-                decision = True
+                mot_not_made = False
+                mot_time = i - 500
+            if not (cog_not_made or mot_not_made):
                 break
-        if not decision:
+
+        if cog_not_made:
+            cog_time = i1 
+        if mot_not_made:
+            mot_time = i1 
             P.append(0)
+            failed_trials += 1
+
+        DT_COG.append(cog_time)
+        DT_MOT.append(mot_time)
+
         if first:
             for k in range(np.array(W).size) : W_arr[k].append(W[k])
             for k in range(np.array(WM).size): WM_arr[k].append(WM[k])
@@ -249,150 +273,125 @@ def run_session():
         if debug:
             if i >= (i1-1):
                 print "! Failed trial"
-                failed_trials += 1
             print
 
 
     return failed_trials
 ### end of run_session
 
-num_sessions = 250 
+
+if testing:
+    num_sessions = 4
+else:
+    num_sessions = 250 
+
 trials_set = range(num_trials) 
 cog_ft = np.zeros(num_sessions)
 cog_mp = np.zeros((num_sessions,num_trials))
+# diff b/w cog dec and mot dec = mot_dec_time - cog_dec_time
+cog_dec_time = np.zeros((num_sessions,num_trials))
+mot_dec_time = np.zeros((num_sessions,num_trials))
 cog_mr = np.zeros(num_sessions)
 
 for k in range(num_sessions):
     cog_ft[k] = run_session()
     cog_mp[k] = P 
+    cog_dec_time[k] = DT_COG
+    mot_dec_time[k] = DT_MOT
     cog_mr[k] = np.array(R)[-20:].mean()
     print "[Session %d] Mean performance: %.3f" % (k,np.mean(cog_mp[k]))
     print "[Session %d] Mean reward: %.3f" % (k,cog_mr[k])
     print
 
-
-####
-# Plot the variation of weights over each trial as learning happens
-plt.figure(1)
-plt.subplot(2,2,1)
-plt.plot(trials_set, W_arr[0], color='r', label='W0')
-plt.plot(trials_set, W_arr[1], color='b', label='W1')
-plt.plot(trials_set, W_arr[2], color='g', label='W2')
-plt.plot(trials_set, W_arr[3], color='c', label='W3')
-plt.title('Only COG Learning - COG Weights')
-plt.ylim(0.48,0.60)
-plt.legend(loc=2)
-plt.subplot(2,2,2)
-plt.plot(trials_set, WM_arr[0], color='r', label='D0')
-plt.plot(trials_set, WM_arr[1], color='b', label='D1')
-plt.plot(trials_set, WM_arr[2], color='g', label='D2')
-plt.plot(trials_set, WM_arr[3], color='c', label='D3')
-plt.title('Only COG Learning - MOT Weights')
-plt.legend(loc=2)
-plt.ylim(0.48,0.60)
+print "Failed trials in Cog learning - %d" % np.mean(cog_ft)
 ####
 TP = np.zeros((num_sessions,num_trials))
+DTCOG = np.zeros((num_sessions,num_trials))
+DTMOT = np.zeros((num_sessions,num_trials))
 for i in range(num_sessions):
     for j in range(num_trials):
         TP[i,j] = np.mean(cog_mp[i,j])
+        DTCOG[i,j] = np.mean(cog_dec_time[i,j])
+        DTMOT[i,j] = np.mean(mot_dec_time[i,j])
 
-# Plot the mean performance for each trial over all sessions
-plt.figure(2,figsize=(12,5.5))
-ax = plt.subplot(211)
-ax.patch.set_facecolor("w")
-ax.spines['right'].set_color('none')
-ax.spines['top'].set_color('none')
-ax.yaxis.set_ticks_position('left')
-ax.yaxis.set_tick_params(direction="in")
-ax.xaxis.set_ticks_position('bottom')
-ax.xaxis.set_tick_params(direction="in")
+title = 'Only COG Learning'
+plot_weights(1, 1, W_arr, WM_arr, num_trials, title)
 
-X = 1+np.arange(num_trials)
-plt.plot(X, TP.mean(axis=0), c='b', lw=2)
-plt.plot(X, TP.mean(axis=0)+TP.var(axis=0), c='b',lw=.5)
-plt.plot(X, TP.mean(axis=0)-TP.var(axis=0), c='b',lw=.5)
-plt.fill_between(X, TP.mean(axis=0)+TP.var(axis=0),
-                    TP.mean(axis=0)-TP.var(axis=0), color='b', alpha=.1)
-#plt.xlabel("Trial number", fontsize=16)
-plt.ylabel("Performance", fontsize=16)
-plt.ylim(0,1.0)
-plt.xlim(1,num_trials)
-plt.title('[alpha_c = '+str(alpha_c)+', alpha_LTP = '+str(alpha_LTP)+', alpha_LTD = '+str(alpha_LTD)+']')
+title = """
+          alpha[_c = %.3f, _LTP = %.3f, _LTD = %.3f]
+        """ % (alpha_c, alpha_LTP, alpha_LTD) 
+plot_performance(2, 1, num_trials, TP, title)
 
+title = 'Only COG Learning'
+plot_diff_decision_times(3, 1, num_trials, DTCOG, DTMOT, trial, title)
+
+plot_decision_times(4,1, num_trials, DTCOG, DTMOT, trial, title)
+
+#Turn mot_learning on and re-run
 mot_learning = True
+same_rates = True
 if mot_learning:
-    alpha_c    = alpha_c/2 
-    alpha_m    = alpha_m/2 
-    alpha_LTP  = alpha_LTP/2
-    alpha_LTD  = alpha_LTD/2
-    alpha_LTP_m  = alpha_LTP_m/2
-    alpha_LTD_m  = alpha_LTD_m/2
-    num_trials = 240
+    if not same_rates:
+        alpha_c    = alpha_c/2 
+        alpha_m    = alpha_m/2 
+        alpha_LTP  = alpha_LTP/2
+        alpha_LTD  = alpha_LTD/2
+        alpha_LTP_m  = alpha_LTP_m/2
+        alpha_LTD_m  = alpha_LTD_m/2
 
-    trials_set = range(num_trials) 
+    if testing:
+        num_trials = 40
+    else:
+        num_trials = 120 
+
     mot_cog_ft = np.zeros(num_sessions)
     mot_cog_mp = np.zeros((num_sessions,num_trials))
+    # diff b/w cog dec and mot dec = mot_dec_time - cog_dec_time
+    cog_dec_time = np.zeros((num_sessions,num_trials))
+    mot_dec_time = np.zeros((num_sessions,num_trials))
     mot_cog_mr = np.zeros(num_sessions)
     for k in range(num_sessions):
         mot_cog_ft[k] = run_session()
         mot_cog_mp[k] = P
+        cog_dec_time[k] = DT_COG
+        mot_dec_time[k] = DT_MOT
         mot_cog_mr[k] = np.array(R)[-20:].mean()
         print "[Session %d] Mean performance: %.3f" % (k,np.mean(mot_cog_mp[k]))
         print "[Session %d] Mean reward: %.3f" % (k,mot_cog_mr[k])
 
+    print "Mean failed trials in Cog & Mot learning - %d" % np.mean(mot_cog_ft)
     ####
-    # Plot the variation of weights over each trial as learning happens
-    plt.figure(1)
-    plt.subplot(2,2,3)
-    plt.plot(trials_set, W_arr[0], color='r', label='W0')
-    plt.plot(trials_set, W_arr[1], color='b', label='W1')
-    plt.plot(trials_set, W_arr[2], color='g', label='W2')
-    plt.plot(trials_set, W_arr[3], color='c', label='W3')
-    plt.title('Both COG and MOT Learning - COG Weights')
-    plt.ylim(0.48,0.60)
-    plt.legend(loc=2)
-    plt.subplot(2,2,4)
-    plt.plot(trials_set, WM_arr[0], color='r', label='D0')
-    plt.plot(trials_set, WM_arr[1], color='b', label='D1')
-    plt.plot(trials_set, WM_arr[2], color='g', label='D2')
-    plt.plot(trials_set, WM_arr[3], color='c', label='D3')
-    plt.title('Both COG and MOT Learning - MOT Weights')
-    plt.ylim(0.48,0.60)
-    plt.legend(loc=2)
-
     TP = np.zeros((num_sessions,num_trials))
+    DTCOG = np.zeros((num_sessions,num_trials))
+    DTMOT = np.zeros((num_sessions,num_trials))
     for i in range(num_sessions):
         for j in range(num_trials):
             TP[i,j] = np.mean(mot_cog_mp[i,j])
+            DTCOG[i,j] = np.mean(cog_dec_time[i,j])
+            DTMOT[i,j] = np.mean(mot_dec_time[i,j])
 
-    # Plot the mean performance for each trial over all sessions
-    plt.figure(2)
-    ax = plt.subplot(212)
-    ax.patch.set_facecolor("w")
-    ax.spines['right'].set_color('none')
-    ax.spines['top'].set_color('none')
-    ax.yaxis.set_ticks_position('left')
-    ax.yaxis.set_tick_params(direction="in")
-    ax.xaxis.set_ticks_position('bottom')
-    ax.xaxis.set_tick_params(direction="in")
 
-    X = 1+np.arange(num_trials)
-    plt.plot(X, TP.mean(axis=0), c='r', lw=2)
-    plt.plot(X, TP.mean(axis=0)+TP.var(axis=0), c='r',lw=.5)
-    plt.plot(X, TP.mean(axis=0)-TP.var(axis=0), c='r',lw=.5)
-    plt.fill_between(X, TP.mean(axis=0)+TP.var(axis=0),
-                        TP.mean(axis=0)-TP.var(axis=0), color='r', alpha=.1)
-    plt.xlabel("Trial number", fontsize=16)
-    plt.ylabel("Performance", fontsize=16)
-    plt.ylim(0,1.0)
-    plt.xlim(1,num_trials)
-    plt.title('[alpha_c = '+str(alpha_c)+', alpha_LTP = '+str(alpha_LTP)+', alpha_LTD = '+str(alpha_LTD)
-                + ', alpha_m = '+str(alpha_m)+', alpha_LTP_m = '+str(alpha_LTP_m)+', alpha_LTD_m = '+str(alpha_LTD_m)+']')
+    title = 'Both COG and MOT Learning'
+    plot_weights(1, 2, W_arr, WM_arr, num_trials, title)
 
-plt.figure(1)
-plt.savefig("lat-both-diff-figure-1.pdf")
-plt.figure(2)
-plt.savefig("lat-both-diff-figure-2.pdf")
+    title = """
+              alpha[_c = %.3f, _LTP = %.3f, _LTD = %.3f, _m = %.3f, _LTP_m = %.3f, _LTD_m = %.3f]
+            """ % (alpha_c, alpha_LTP, alpha_LTD, alpha_m, alpha_LTP_m, alpha_LTD_m) 
+    plot_performance(2, 2, num_trials, TP, title)
+
+    title = 'COG & MOT Learning'
+    plot_diff_decision_times(3, 2, num_trials, DTCOG, DTMOT, trial, title)
+
+    plot_decision_times(4,2,num_trials, DTCOG, DTMOT, trial, title)
+
+# END OF ALL SIMULATIONS
+figname = 'lat-final-'+str(num_trials)+'-2500-both-'+ ('same' if same_rates else 'diff') +'-figure-'
+
+if testing: figname = 'test-'+figname
+
+for i in 1+np.arange(4):
+    plt.figure(i)
+    plt.savefig(figname + "-"+str(i)+".pdf")
 
 print "Only Cognitive learning"
 print "Failed trials   : %d" % cog_ft.mean()
@@ -406,4 +405,5 @@ if mot_learning:
 #    print "Mean performance: %.3f" % mot_cog_mp.mean()
     print "Mean reward:      %.3f" % mot_cog_mr.mean()
 
+print "Threshold %d" % threshold
 plt.show()

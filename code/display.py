@@ -142,3 +142,110 @@ def display_all(history, duration=3.0, filename=None):
     if filename is not None:
         plt.savefig(filename)
     plt.show()
+
+#####################  DISPLAY METHODS  ########################################"
+def plot_weights(fignum, figpos, W_arr, WM_arr, num_trials, title):
+    # Plot the variation of weights over each trial as learning happens
+    plt.figure(fignum)
+    pos = 220 + (2*(figpos/2)+1)
+    plt.subplot(pos)
+    trials_set = 1+np.arange(num_trials)
+    colors = ['r','b','g','c']
+    for i in range(4):
+        plt.plot(trials_set, W_arr[i], color=colors[i], label='W'+str(i))
+    plt.title(title + ' - COG Weights')
+    plt.ylim(0.48,0.60)
+    plt.legend(loc=2)
+    plt.subplot(pos + 1)
+    for i in range(4):
+        plt.plot(trials_set, WM_arr[i], color=colors[i], label='D'+str(i))
+    plt.title(title + ' - MOT Weights')
+    plt.ylim(0.48,0.60)
+    plt.legend(loc=2)
+
+
+def plot_performance(fignum, figpos, num_trials, TP, title):
+    # Plot the mean performance for each trial over all sessions
+    plt.figure(fignum)
+    pos = 210 + figpos
+    ax = plt.subplot(pos)
+    ax.patch.set_facecolor("w")
+    ax.spines['right'].set_color('none')
+    ax.spines['top'].set_color('none')
+    ax.yaxis.set_ticks_position('left')
+    ax.yaxis.set_tick_params(direction="in")
+    ax.xaxis.set_ticks_position('bottom')
+    ax.xaxis.set_tick_params(direction="in")
+
+    X = 1+np.arange(num_trials)
+    plt.plot(X, TP.mean(axis=0), c='r', lw=2)
+    plt.plot(X, TP.mean(axis=0)+TP.var(axis=0), c='r',lw=.5)
+    plt.plot(X, TP.mean(axis=0)-TP.var(axis=0), c='r',lw=.5)
+    plt.fill_between(X, TP.mean(axis=0)+TP.var(axis=0),
+                        TP.mean(axis=0)-TP.var(axis=0), color='r', alpha=.1)
+    if figpos > 1 : plt.xlabel("Trial number", fontsize=16)
+    plt.ylabel("Performance", fontsize=16)
+    plt.ylim(0,1.0)
+    plt.xlim(1,num_trials)
+    plt.title(title)
+
+
+def autolabel(ax, rects):
+    # attach some text labels
+    for rect1, rect2 in zip(rects[0],rects[1]):
+        height1 = rect1.get_height()
+        height2 = rect2.get_height()
+        ax.text(rect2.get_x()+rect2.get_width()/2., 1.05*height2, '%d'%(height2 - height1),
+                ha='center', va='bottom')
+
+def plot_diff_decision_times(fignum, figpos, num_trials, DTCOG, DTMOT, trial, title):
+    # Plot mean decision times for COG and MOT over each trial
+    plt.figure(fignum)
+    pos = 210 + figpos
+    ax = plt.subplot(pos)
+    ind = np.arange(10)
+    width = 0.35
+    cog_var = DTCOG.var(axis=0)
+    mot_var = DTMOT.var(axis=0)
+    rects1 = ax.bar(ind, DTCOG.mean(axis=0)[-10:], width, color='r')
+    rects2 = ax.bar(ind+width, DTMOT.mean(axis=0)[-10:], width, color='b')
+    ax.set_ylabel('Decision time')
+    if figpos > 1: ax.set_xlabel('Trial Number', fontsize=16)
+    ax.set_title('Decision times - ' + title)
+    ax.set_xticks(ind+width)
+    ax.set_xticklabels(np.arange(num_trials-9,num_trials+1))
+    ax.legend( (rects1[0], rects2[0]), ('COG', 'MOTOR') )
+    plt.ylim(0,trial*1000)
+    autolabel(ax, [rects1, rects2])
+
+def plot_decision_times(fignum, figpos, num_trials, DTCOG, DTMOT, trial, title):
+    # Plot the decision times of each trial over all sessions
+    plt.figure(fignum)
+    pos = 210 + figpos
+    ax = plt.subplot(pos)
+    ax.patch.set_facecolor("w")
+    ax.spines['right'].set_color('none')
+    ax.spines['top'].set_color('none')
+    ax.yaxis.set_ticks_position('left')
+    ax.yaxis.set_tick_params(direction="in")
+    ax.xaxis.set_ticks_position('bottom')
+    ax.xaxis.set_tick_params(direction="in")
+
+    X = 1+np.arange(num_trials)
+    cog_times_mean = DTCOG.mean(axis=0)
+    tot_cog_mean = np.mean(cog_times_mean[-20])
+    mot_times_mean = DTMOT.mean(axis=0)
+    tot_mot_mean = np.mean(mot_times_mean[-20])
+    plt.plot(X, cog_times_mean, c='b', lw=2, label='COG')
+    plt.plot([X[0],X[num_trials-1]],[tot_cog_mean,tot_cog_mean], 'b--', lw=2)
+    plt.plot(X, mot_times_mean, c='r', lw=2, label='MOT')
+    plt.plot([X[0],X[num_trials-1]],[tot_mot_mean,tot_mot_mean], 'r--', lw=2)
+    plt.ylabel("Decision Time", fontsize=16)
+    if figpos > 1: plt.xlabel("Trial Number", fontsize=16)
+    plt.ylim(0,0.75*trial*1000)
+    plt.xlim(1,num_trials)
+    plt.legend(loc=2)
+    plt.title(title)
+
+#####################  END OF DISPLAY METHODS  ########################################"
+
