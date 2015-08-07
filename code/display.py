@@ -153,16 +153,32 @@ def plot_weights(fignum, figpos, W_arr, WM_arr, num_trials, title):
     colors = ['r','b','g','c']
     for i in range(4):
         plt.plot(trials_set, W_arr[i], color=colors[i], label='W'+str(i))
-    plt.title(title + ' - COG Weights')
+    plt.title(title + '-COG Wts')
     plt.ylim(0.48,0.60)
     plt.legend(loc=2)
     plt.subplot(pos + 1)
     for i in range(4):
         plt.plot(trials_set, WM_arr[i], color=colors[i], label='D'+str(i))
-    plt.title(title + ' - MOT Weights')
+    plt.title(title + '-MOT Wts')
     plt.ylim(0.48,0.60)
     plt.legend(loc=2)
 
+#####################  DISPLAY METHODS  ########################################"
+def plot_lines(fignum, figpos, data, trials_set, labels, title=''):
+    # Plot the variation of weights over each trial as learning happens
+    plt.figure(fignum)
+    pos = 220 + figpos
+    plt.subplot(pos)
+    colors = ['r','b','g','c','m','y']
+    for i in range(np.size(data)/np.size(trials_set)):
+        if np.size(data) == np.size(trials_set):
+            plt.plot(trials_set, data, color=colors[i], label=str(labels))
+        else:
+            plt.plot(trials_set, data[i], color=colors[i], label=str(labels[i]))
+    plt.title(title)
+    plt.ylim(0,2)
+    plt.yticks([0.0,0.5,1.0,1.5,2.0],['0.0','0.5','1.0','',''])
+    plt.legend(loc=2)
 
 def plot_performance(fignum, figpos, num_trials, TP, title):
     # Plot the mean performance for each trial over all sessions

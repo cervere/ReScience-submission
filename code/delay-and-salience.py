@@ -14,6 +14,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from model import *
+from display import *
 
 # --- Parameter
 ms         = 0.001
@@ -53,7 +54,7 @@ def weights(shape):
 if getWeights:
     W = weights(4)
 else:
-    W = np.load("delayed-stimulus.npy")
+    W = np.load("cog-weights.npy")
 
 connections = [
     OneToOne( CTX.cog.V, STR.cog.Isyn, W,            gain=+1.0 ),
@@ -82,6 +83,7 @@ cues_mot = np.array([0,1,2,3])
 cues_cog = np.array([0,1,2,3])
 cues_value = np.ones(4) * 0.5
 cues_reward = np.array([3.0,2.0,1.0,0.0])/3.0
+num_trials = 120 
 
 def set_trial():
     global cues_mot, cues_cog, cues_values, cues_reward
@@ -102,32 +104,36 @@ def set_trial():
     CTX.ass.Iext[c1*4+m1] = v + np.random.normal(0,v*noise)
     CTX.ass.Iext[c2*4+m2] = v + np.random.normal(0,v*noise)
 
-def first_stimulus():
+def first_stimulus(cues=[],salience=0):
     global cues_mot, cues_cog, cues_values, cues_reward
     global dc1
-    np.random.shuffle(cues_cog)
     np.random.shuffle(cues_mot)
-    c1,c2 = cues_cog[:2]
-    m1,m2 = cues_mot[:2]
-    c1 = max(c1,c2) 
-    dc1 = c1
     m1 = cues_mot[0]
+    if np.size(cues) == 0:
+        np.random.shuffle(cues_cog)
+        c1,c2 = cues_cog[:2]
+        c1 = max(c1,c2) 
+    else:
+        c1 = cues[0]
+    dc1 = c1
     v = 7
     noise = 0.01
     CTX.mot.Iext = 0
     CTX.cog.Iext = 0
     CTX.ass.Iext = 0
     CTX.mot.Iext[m1]  = v + np.random.normal(0,v*noise)
-    CTX.cog.Iext[c1]  = v + np.random.normal(0,v*noise)
+    CTX.cog.Iext[c1]  = v + np.random.normal(0,v*noise) + salience
     CTX.ass.Iext[c1*4+m1] = v + np.random.normal(0,v*noise)
 
-def second_stimulus():
+def second_stimulus(cues=[]):
     global dc2
-    c1,c2 = cues_cog[:2]
-    m1,m2 = cues_mot[:2]
-    c2 = min(c1,c2) 
-    dc2 = c2
     m2 = cues_mot[1]
+    if np.size(cues) == 0:
+        c1,c2 = cues_cog[:2]
+        c2 = min(c1,c2) 
+    else:
+        c2 = cues[1]
+    dc2 = c2
     v = 7
     noise = 0.01
     CTX.mot.Iext[m2]  = v + np.random.normal(0,v*noise)
@@ -165,7 +171,7 @@ def reset():
         structure.reset()
 
 
-def learn(time, debug=True):
+def update_and_learn(time, learn=True, debug=True):
     # A motor decision has been made
     cc1, cc2 = cues_cog[:2]
     if getWeights:
@@ -194,17 +200,19 @@ def learn(time, debug=True):
     reward = np.random.uniform(0,1) < cues_reward[choice]
     R.append(reward)
 
-    # Compute prediction error
-    #error = cues_reward[choice] - cues_value[choice]
-    error = reward - cues_value[choice]
+    if learn:
+        # Compute prediction error
+        #error = cues_reward[choice] - cues_value[choice]
+        error = reward - cues_value[choice]
 
-    # Update cues values
-    cues_value[choice] += error* alpha_c
+        # Update cues values
+        cues_value[choice] += error* alpha_c
 
-    # Learn
-    lrate = alpha_LTP if error > 0 else alpha_LTD
-    dw = error * lrate * STR.cog.V[choice]
-    W[choice] = W[choice] + dw * (W[choice]-Wmin)*(Wmax-W[choice])
+        # Learn
+        lrate = alpha_LTP if error > 0 else alpha_LTD
+        dw = error * lrate * STR.cog.V[choice]
+        W[choice] = W[choice] + dw * (W[choice]-Wmin)*(Wmax-W[choice])
+
 
     if not debug: return
 
@@ -219,138 +227,109 @@ def learn(time, debug=True):
     print "Mean reward:      %.3f" % np.array(R).mean()
     print "Response time:    %d ms" % (time)
 
-delay = 50
- 
+def run_session(stim=[], delay=0, salience=0):
+    # 120 trials
+    for j in range(num_trials):
+        reset()
 
-P, R = [], []
-# 120 trials
-for j in range(120):
-    reset()
+        # Settling phase (500ms)
+        i0 = 0 
+        i1 = i0+int(settling/dt)
+        for i in xrange(i0,i1):
+            iterate(dt)
 
-    # Settling phase (500ms)
-    i0 = 0
-    i1 = i0+int(settling/dt)
-    for i in xrange(i0,i1):
-        iterate(dt)
+        # Trial setup
+        if getWeights:
+            set_trial()
+        else:
+            first_stimulus(stim,salience)
+        # Learning phase (2500ms)
+        i0 = int(settling/dt)
+        i1 = i0+int(trial/dt)
+        for i in xrange(i0,i1):
+            if not getWeights:
+                if i == i0 + delay:
+                    print "introducing second stimulus"
+                    second_stimulus()
+            iterate(dt)
+            # Test if a decision has been made
+            if CTX.mot.delta > threshold:
+                update_and_learn(time=i-i0, learn=getWeights, debug=debug)
+                break
 
-    # Trial setup
-    if getWeights:
-        set_trial()
-    else:
-        first_stimulus()
-    # Learning phase (2500ms)
-    i0 = int(settling/dt)
-    i1 = i0+int(trial/dt)
-    for i in xrange(i0,i1):
-        if not getWeights:
-            if i == 500 + delay:
-                print "introducing second stimulus"
-                second_stimulus()
-        iterate(dt)
-        # Test if a decision has been made
-        if CTX.mot.delta > threshold:
-            learn(time=i-500, debug=debug)
-            break
-
-    # Debug information
-    if debug:
-        if i >= (i1-1):
-            print "! Failed trial"
-        print
-
-print "Done with learning. Running a trial to check decision time"
-# -----------------------------------------------------------------------------
-#from display import *
-def display_ctx(history, cues, delay=0, duration=3.0, filename=None):
-    fig = plt.figure(figsize=(12,5))
-    plt.subplots_adjust(bottom=0.15)
-
-    timesteps = np.linspace(0,duration, len(history))
-
-    fig.patch.set_facecolor('.9')
-    ax = plt.subplot(1,1,1)
-    d = "Delay "+str(delay)+"ms, Cues-[ "+str(cues)+" ]"
-    plt.plot(timesteps, history["CTX"]["cog"][:,0],c='r', label="Cognitive Cortex "+d)
-    plt.text(1.5, history["CTX"]["cog"][:,0][1500], "CUE-0", size=10, rotation=0.,
-         ha="center", va="center",
-         bbox = dict(ec='1',fc='1')
-        )
-    plt.plot(timesteps, history["CTX"]["cog"][:,1],c='r')
-    plt.text(1.5, history["CTX"]["cog"][:,1][1500], "CUE-1", size=10, rotation=0.,
-         ha="center", va="center",
-         bbox = dict(ec='1',fc='1')
-        )
-    plt.plot(timesteps, history["CTX"]["cog"][:,2],c='r')
-    plt.text(1.5, history["CTX"]["cog"][:,2][1500], "CUE-2", size=10, rotation=0.,
-         ha="center", va="center",
-         bbox = dict(ec='1',fc='1')
-        )
-    plt.plot(timesteps, history["CTX"]["cog"][:,3],c='r')
-    plt.text(1.5, history["CTX"]["cog"][:,3][1500], "CUE-3", size=10, rotation=0.,
-         ha="center", va="center",
-         bbox = dict(ec='1',fc='1')
-        )
-    plt.plot(timesteps, history["CTX"]["mot"][:,0],c='b', label="Motor Cortex")
-    plt.plot(timesteps, history["CTX"]["mot"][:,1],c='b')
-    plt.plot(timesteps, history["CTX"]["mot"][:,2],c='b')
-    plt.plot(timesteps, history["CTX"]["mot"][:,3],c='b')
-
-    plt.xlabel("Time (seconds)")
-    plt.ylabel("Activity (Hz)")
-    plt.legend(frameon=False, loc='upper left')
-    plt.xlim(0.0,duration)
-    plt.ylim(0.0,60.0)
-
-    plt.xticks([0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0],
-               ['0.0','0.5\n(Trial start)','1.0','1.5', '2.0','2.5\n(Trial stop)','3.0'])
-
-    if filename is not None:
-        plt.savefig(filename)
-    plt.show()
+        # Debug information
+        if debug:
+            if i >= (i1-1):
+                print "! Failed trial"
+            print
 
 if getWeights:
-    print "saving weights"
-    np.save("delayed-stimulus.npy", W)
-else:
-    dt = 0.001
-    for j in range(1):
-        reset()
-        for i in xrange(0,500):
-            iterate(dt)
-        first_stimulus()
-        for i in xrange(500,2500):
-            if i == 500 + delay:
-                print "introducing second stimulus"
-                second_stimulus()
-            iterate(dt)
-        stop_trial()
-        for i in xrange(2500,3000):
-            iterate(dt)
+    P, R = [], []
+    run_session()
+    print "Done with learning. Saving weights to cog-weights.npy"
+    np.save("cog-weights.npy", W)
+    exit()
 
-    dtype = [ ("CTX", [("mot", float, 4), ("cog", float, 4), ("ass", float, 16)]),
-              ("STR", [("mot", float, 4), ("cog", float, 4), ("ass", float, 16)]),
-              ("GPI", [("mot", float, 4), ("cog", float, 4)]),
-              ("THL", [("mot", float, 4), ("cog", float, 4)]),
-              ("STN", [("mot", float, 4), ("cog", float, 4)])]
+possible_cues = ([1,0],[2,0],[3,0],[2,1],[3,1],[3,2])
 
-    history = np.zeros(3000, dtype=dtype)
-    history["CTX"]["mot"]   = CTX.mot.history[:3000]
-    history["CTX"]["cog"]   = CTX.cog.history[:3000]
-    history["CTX"]["ass"]   = CTX.ass.history[:3000]
-    history["STR"]["mot"] = STR.mot.history[:3000]
-    history["STR"]["cog"] = STR.cog.history[:3000]
-    history["STR"]["ass"] = STR.ass.history[:3000]
-    history["STN"]["mot"]      = STN.mot.history[:3000]
-    history["STN"]["cog"]      = STN.cog.history[:3000]
-    history["GPI"]["mot"]      = GPI.mot.history[:3000]
-    history["GPI"]["cog"]      = GPI.cog.history[:3000]
-    history["THL"]["mot"] = THL.mot.history[:3000]
-    history["THL"]["cog"] = THL.cog.history[:3000]
+# Introducing less rewarding stimulus with a salience
+saliences = (0,0.5,1,1.5,2,2.5)
+perf_for_salience = np.zeros((np.size(saliences),np.shape(possible_cues)[0])) 
+delay = 0
+for d in range(np.size(saliences)):
+    salience = saliences[d]
+    perf = np.zeros(np.shape(possible_cues)[0])
+    for c in range(np.shape(possible_cues)[0]):
+        stim = possible_cues[c]
+        P, R = [], []
+        run_session(stim, delay, salience)
+        perf[c] = np.array(P).mean()
+    perf_for_salience[d] = perf 
+print perf_for_salience
+np.save("perf_for_salience.npy",perf_for_salience)
+plot_lines(1, 1, np.transpose(perf_for_salience)[:3], saliences, possible_cues[:3])
+plt.ylabel('Performance')
+plot_lines(1, 2, np.transpose(perf_for_salience)[3:5], saliences, possible_cues[3:5])
+plt.xlabel('Salience')
+plot_lines(1, 3, np.transpose(perf_for_salience)[5], saliences, possible_cues[5])
+plt.ylabel('Performance')
+plt.xlabel('Salience')
+fig = plt.figure(1)
+fig.suptitle("Performance - less rewarding stimulus first - with salience")
 
-    if 1:
-        display_ctx(history, np.array([dc1, dc2]), delay, 3.0, "after-learning-delay-cortex.pdf")
-    #if 1:
-    #    display_all(history, 3.0, "after-learning-all-1bis.pdf")
+plt.savefig("performances-with-saliences.pdf")
+
+# Introducing more rewarding stimulus with a delay
+delays = (0,10,20,30,40,50,60,70)
+perf_for_delay = np.zeros((np.size(delays),np.shape(possible_cues)[0])) 
+salience = 0
+for d in range(np.size(delays)):
+    delay = delays[d]
+    perf = np.zeros(np.shape(possible_cues)[0])
+    for c in range(np.shape(possible_cues)[0]):
+        stim = possible_cues[c]
+        P, R = [], []
+        run_session(stim, delay, salience)
+        perf[c] = np.array(P).mean()
+    perf_for_delay[d] = perf 
+print perf_for_delay
+np.save("perf_for_delay.npy",perf_for_delay)
+
+plot_lines(2, 1, np.transpose(perf_for_delay)[:3], delays, possible_cues[:3])
+plt.ylabel('Performance')
+plot_lines(2, 2, np.transpose(perf_for_delay)[3:5], delays, possible_cues[3:5])
+plt.xlabel('Delay (ms)')
+plot_lines(2, 3, np.transpose(perf_for_delay)[5], delays, possible_cues[5])
+plt.xlabel('Delay (ms)')
+plt.ylabel('Performance')
+fig = plt.figure(2)
+fig.suptitle("Performance - more rewarding stimulus later - with delay")
+
+plt.savefig("performances-with-delays.pdf")
+plt.show()
+
+exit()
+
 
 
 
